@@ -137,6 +137,8 @@ final class SemanticVersionTests: XCTestCase {
         XCTAssertLessThan(SemanticVersion(1, 0, "beta"), SemanticVersion(1, 0, 0))
         XCTAssertLessThan(SemanticVersion(1, 0, 0, "beta"), SemanticVersion(1, 0, 0))
 
+        XCTAssertLessThan(SemanticVersion(1, "beta"), SemanticVersion(1, "beta.12345"))
+
         XCTAssertLessThan(SemanticVersion(1, "beta", "aarch64"), SemanticVersion(1, 0, 0))
         XCTAssertLessThan(SemanticVersion(1, 0, "beta", "aarch64"), SemanticVersion(1, 0, 0))
         XCTAssertLessThan(SemanticVersion(1, 0, 0, "beta", "aarch64"), SemanticVersion(1, 0, 0))

@@ -8,13 +8,83 @@
 import RegexBuilder
 
 public struct SemanticVersion: RawRepresentable, Codable, Hashable, Comparable, LosslessStringConvertible {
+    public enum PreReleaseIdentifier: RawRepresentable, Codable, Comparable, Hashable {
+        case numeric(value: UInt)
+        case alphaNumeric(value: String)
+
+        public var rawValue: String {
+            switch self {
+                case .numeric(let value):
+                    return String(value)
+
+                case .alphaNumeric(let value):
+                    return value
+            }
+        }
+
+        @_transparent
+        public init(rawValue: String) {
+            self.init(rawValue)
+        }
+
+        public init(_ string: some StringProtocol) {
+            if let uIntValue = UInt(string) {
+                self = .numeric(value: uIntValue)
+            } else {
+                self = .alphaNumeric(value: String(string))
+            }
+        }
+
+        public static func < (lhs: PreReleaseIdentifier, rhs: PreReleaseIdentifier) -> Bool {
+            switch (lhs, rhs) {
+                case (.numeric(let lhsValue), .numeric(let rhsValue)):
+                    return lhsValue < rhsValue
+
+                case (.alphaNumeric(let lhsValue), .alphaNumeric(let rhsValue)):
+                    return lhsValue < rhsValue
+
+                case (.numeric, .alphaNumeric):
+                    return true
+
+                default:
+                    return false
+            }
+        }
+
+        public static func == (lhs: PreReleaseIdentifier, rhs: PreReleaseIdentifier) -> Bool {
+            switch (lhs, rhs) {
+                case (.numeric(let lhsValue), .numeric(let rhsValue)):
+                    return lhsValue == rhsValue
+
+                case (.alphaNumeric(let lhsValue), .alphaNumeric(let rhsValue)):
+                    return lhsValue == rhsValue
+
+                default:
+                    return false
+            }
+        }
+    }
+
     // if your major version does not fit 64bit unsigned integer you are an advanced futuristic AI and I hope crash here will help humans fighting you
     public var major: UInt
     public var minor: UInt?
     public var minorStrict: UInt { minor ?? 0 }
     public var patch: UInt?
     public var patchStrict: UInt { patch ?? 0 }
-    public var preRelease: String
+    public var preReleaseIdentifiers: [PreReleaseIdentifier]
+    public var preRelease: String {
+        get {
+            preReleaseIdentifiers
+                .map { $0.rawValue }
+                .joined(separator: ".")
+        }
+        set {
+            preReleaseIdentifiers = newValue
+                .split(separator: ".")
+                .map { PreReleaseIdentifier($0) }
+        }
+    }
+
     public var buildMetadata: String
 
     public var rawValue: String {
@@ -80,7 +150,8 @@ public struct SemanticVersion: RawRepresentable, Codable, Hashable, Comparable, 
         self.major = major
         self.minor = minor
         self.patch = patch
-        self.preRelease = preRelease
+        self.preReleaseIdentifiers = preRelease.split(separator: ".")
+            .map { PreReleaseIdentifier($0) }
         self.buildMetadata = buildMetadata
     }
 
@@ -93,12 +164,12 @@ public struct SemanticVersion: RawRepresentable, Codable, Hashable, Comparable, 
             return nil
         }
         
-        let (_, major, minor, patch, preRelease, buildMetadata) = match.output
+        let (_, major, minor, patch, preReleaseIdentifiers, buildMetadata) = match.output
         
         self.major = major
         self.minor = minor
         self.patch = patch ?? nil
-        self.preRelease = preRelease ?? ""
+        self.preReleaseIdentifiers = preReleaseIdentifiers ?? []
         self.buildMetadata = buildMetadata ?? ""
     }
 
@@ -128,20 +199,20 @@ public struct SemanticVersion: RawRepresentable, Codable, Hashable, Comparable, 
             return lhs.patchStrict < rhs.patchStrict
         }
 
-        if lhs.preRelease != rhs.preRelease {
-            // FIXME: This code assumes preRelease identifier are alphanumerical. Check spec
-            if lhs.preRelease.isEmpty {
-                return false
-            }
-
-            if rhs.preRelease.isEmpty {
-                return true
-            }
-
-            return lhs.preRelease < rhs.preRelease
+        // empty pre-release identifiers are always "newer" than non-empty
+        if lhs.preReleaseIdentifiers.isEmpty != rhs.preReleaseIdentifiers.isEmpty {
+            return rhs.preReleaseIdentifiers.isEmpty
         }
 
-        return false
+        // find first difference and return it's comparison. if elements are the same - compare number of elements
+        return zip(lhs.preReleaseIdentifiers, rhs.preReleaseIdentifiers)
+            .first {
+                $0.0 != $0.1
+            }
+            .map {
+                $0.0 < $0.1
+            }
+            ?? (lhs.preReleaseIdentifiers.count < rhs.preReleaseIdentifiers.count)
     }
 
     public static func == (lhs: SemanticVersion, rhs: SemanticVersion) -> Bool {
@@ -210,7 +281,10 @@ public struct SemanticVersion: RawRepresentable, Codable, Hashable, Comparable, 
                     "."
                     preReleaseIdentifier
                 }
-            } transform: { String($0) }
+            } transform: {
+                $0.split(separator: ".")
+                    .map { PreReleaseIdentifier($0) }
+            }
         }
         Optionally(.possessive) {
             "+"
