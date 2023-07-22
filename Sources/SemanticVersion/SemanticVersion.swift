@@ -163,7 +163,7 @@ public struct SemanticVersion: RawRepresentable, Codable, Hashable, Comparable, 
         guard let match = string.wholeMatch(of: Self.regex) else {
             return nil
         }
-        
+
         let (_, major, minor, patch, preReleaseIdentifiers, buildMetadata) = match.output
         
         self.major = major
@@ -229,16 +229,19 @@ public struct SemanticVersion: RawRepresentable, Codable, Hashable, Comparable, 
         preRelease.hash(into: &hasher)
         buildMetadata.hash(into: &hasher)
     }
-
+    
     static let regex = Regex {
-        let nonDigit = #/[a-zA-Z-]/#
-        let identifierCharacter = #/[0-9a-zA-Z-]/#
-        let nonZeroDigit = #/[1-9]/# // positive digit
+        // Swift compiler has troubles type checking this builder. 5.8.1 takes 30 seconds to do it on my PC. 5.9 errors out with "failed to type check in reasonable type"
+        // One could think this is a problem of the past, but actually no. With proper type annotation made by hand build takes only 3 seconds. 10 times better
+        let nonDigit: Regex<Substring> = #/[a-zA-Z-]/#
+        let identifierCharacter: Regex<Substring> = #/[0-9a-zA-Z-]/#
+        let nonZeroDigit: Regex<Substring> = #/[1-9]/# // positive digit
         let positiveNumber = Regex {
             nonZeroDigit
             ZeroOrMore(.digit)
         }
-        let preReleaseIdentifier = ChoiceOf {
+
+        let preReleaseIdentifier: ChoiceOf<Substring> = ChoiceOf {
             "0"
             positiveNumber
             Regex {
@@ -248,17 +251,43 @@ public struct SemanticVersion: RawRepresentable, Codable, Hashable, Comparable, 
             }
         }
         
-        let buildIdentifier = OneOrMore {
+        let buildIdentifier: OneOrMore<Substring> = OneOrMore {
             identifierCharacter
         }
 
-        let version = Capture {
+        let version: Capture<(Substring, UInt)> = Capture {
             ChoiceOf {
                 "0"
                 positiveNumber
             }
         } transform: { UInt($0)! }
 
+        let preReleaseRegexPart: Optionally<(Substring, [PreReleaseIdentifier]?)> = Optionally(.possessive) {
+            "-"
+            Capture {
+                preReleaseIdentifier
+                ZeroOrMore {
+                    "."
+                    preReleaseIdentifier
+                }
+            } transform: {
+                $0.split(separator: ".")
+                    .map { SemanticVersion.PreReleaseIdentifier($0) }
+            }
+        }
+
+        let buildRegexPart: Optionally<(Substring, String?)> = Optionally(.possessive) {
+            "+"
+            Capture {
+                buildIdentifier
+                ZeroOrMore {
+                    "."
+                    buildIdentifier
+                }
+            } transform: { String($0) }
+        }
+
+        // actual result regex
         Anchor.startOfLine
         Optionally(.possessive) {
             "v"
@@ -273,29 +302,8 @@ public struct SemanticVersion: RawRepresentable, Codable, Hashable, Comparable, 
             "."
             version
         }
-        Optionally(.possessive) {
-            "-"
-            Capture {
-                preReleaseIdentifier
-                ZeroOrMore {
-                    "."
-                    preReleaseIdentifier
-                }
-            } transform: {
-                $0.split(separator: ".")
-                    .map { PreReleaseIdentifier($0) }
-            }
-        }
-        Optionally(.possessive) {
-            "+"
-            Capture {
-                buildIdentifier
-                ZeroOrMore {
-                    "."
-                    buildIdentifier
-                }
-            } transform: { String($0) }
-        }
+        preReleaseRegexPart
+        buildRegexPart
         Anchor.endOfLine
     }
 }
